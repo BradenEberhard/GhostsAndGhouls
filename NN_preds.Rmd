@@ -1,0 +1,64 @@
+---
+title: "Ghouls"
+output: html_document
+---
+
+```{r}
+library(reticulate)
+library(tidyverse)
+library(DataExplorer)
+library(caret)
+library(vroom)
+library(lubridate)
+library(sigmoid)
+library(corrplot)
+library(caretEnsemble)
+library(doParallel)
+library(Metrics)
+library(BBmisc)
+library(neuralnet)
+setwd('/Users/bradeneberhard/Documents/Winter 2021/495R/Ghouls/ghouls-goblins-and-ghosts-boo')
+train_data <- vroom('train.csv')
+test_data <- vroom('test.csv')
+sample_submission <- vroom('sample_submission.csv')
+```
+```{r}
+ghost <- bind_rows(train_data, test_data)
+plot_missing(ghost)
+head(ghost)
+ghost$color <- as.factor(ghost$color)
+ghost$type <- as.factor(ghost$type)
+ghost <- data.frame(predict(dummyVars(" ~ .", data=ghost), newdata = ghost)) 
+```
+```{r}
+ghost$bone_length <- normalize(ghost$bone_length, method = "standardize", range = c(0, 1), margin = 1L, on.constant = "quiet")
+ghost$rotting_flesh <- normalize(ghost$rotting_flesh, method = "standardize", range = c(0, 1), margin = 1L, on.constant = "quiet")
+ghost$hair_length <- normalize(ghost$hair_length, method = "standardize", range = c(0, 1), margin = 1L, on.constant = "quiet")
+ghost$has_soul <- normalize(ghost$has_soul, method = "standardize", range = c(0, 1), margin = 1L, on.constant = "quiet")
+train <- ghost %>% filter(!is.na(ghost$typeGhost))
+idx <- createDataPartition(train$id)
+train[idx$Resample1,]
+NN = neuralnet(typeGoblin + typeGhoul + typeGhost ~ colorwhite + colorgreen + colorclear + colorblue + colorblood + colorblack + has_soul + hair_length + rotting_flesh + bone_length, train, hidden = c(10, 10, 3), rep = 20)
+predictions <- predict(NN, train)
+
+list <- argmax(predictions)
+output <- ifelse(list == 1, 'Goblin', ifelse(list == 2, 'Ghoul', 'Ghost'))
+mean(train_data$type == output)
+```
+
+```{r}
+predictions <- predict(NN, ghost %>% filter(is.na(ghost$typeGhost)))
+list <- argmax(predictions)
+output <- data.frame(ifelse(list == 1, 'Goblin', ifelse(list == 2, 'Ghoul', 'Ghost')))
+names(output) <- 'type'
+output$id <- test_data$id
+write.csv(output, './output.csv', row.names=F)
+```
+
+```{r}
+all_out <- data.frame(predict(NN, ghost))
+names(all_out) <- c('PrGoblin_nn', 'PrGhost_nn', 'PrGhoul_nn')
+all_out$id <- ghost$id
+write.csv(all_out, './nn_Probs_65acc.csv', row.names=F)
+```
+

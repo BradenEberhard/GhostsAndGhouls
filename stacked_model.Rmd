@@ -1,0 +1,76 @@
+```{r}
+library(dplyr)
+library(vroom)
+library(tidyverse)
+library(caret)
+ setwd("~/Documents/Winter 2021/495R/Ghouls")
+```
+
+```{r}
+rf <- vroom('classification_submission_rf.csv')
+mlp <- vroom('multilayerperceptron.csv')
+gbm <- vroom('probs_gbm.csv')
+knn <- vroom('Probs_KNN.csv')
+svm <- vroom('probs_svm.csv')
+log <- vroom('LogRegPreds.csv')
+xgb <- vroom('xgbTree_probs.csv')
+train <- vroom('ghouls-goblins-and-ghosts-boo/train.csv')
+train$Set <- 'train'
+test <- vroom('ghouls-goblins-and-ghosts-boo/test.csv')
+test$Set <- 'test'
+```
+
+```{r}
+ghost <- bind_rows(train, test)
+#ghost$Set <- ifelse(is.na(ghost$type), 'test', 'train')
+names(rf)[1] <- 'id'
+names(gbm)[1] <- 'id'
+names(knn)[1] <- 'id'
+names(svm)[1] <- 'id'
+names(xgb)[1] <- 'id'
+all_ghost <- merge(ghost, rf) %>% merge(mlp)  %>% merge(gbm) %>% merge(knn) %>% merge(svm) %>% merge(log) %>% merge(xgb)
+
+```
+
+```{r}
+pp <- preProcess(all_ghost, method='pca')
+ghost_pp <- predict(pp, all_ghost)
+```
+
+```{r}
+data <- ghost_pp %>% filter(Set == 'train') 
+X_train <- ghost_pp %>% filter(Set == 'train') %>% select(-type, -color, -Set)
+y_train <- ghost_pp %>% filter(Set == 'train') %>% select(type)
+y_train$type <- as.factor(y_train$type)
+xgb_trcontrol = trainControl(
+  method = "cv",
+  number = 5,  
+  allowParallel = TRUE,
+  verboseIter = FALSE,
+  returnData = FALSE
+)
+xgbGrid <- expand.grid(nrounds = c(100,200),  # this is n_estimators in the python code above
+                       max_depth = c(10, 15, 20, 25),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       ## The values below are default values in the sklearn-api. 
+                       eta = 0.1,
+                       gamma=0,
+                       min_child_weight = 1,
+                       subsample = 1
+                      )
+set.seed(0) 
+xgb_model = train(
+  X_train, y_train$type,  
+  trControl = xgb_trcontrol,
+  tuneGrid = xgbGrid,
+  method = "xgbTree"
+)
+```
+
+```{r}
+X_test <- ghost_pp %>% filter(Set == 'test') %>% select(-type, -color, -Set)
+predicted = predict(xgb_model, X_test)
+test$type <- predicted
+write.csv(test %>% select(id, type), 'output.csv', row.names = F)
+```
+
